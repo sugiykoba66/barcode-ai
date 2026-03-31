@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EAN Barcode Generator with Gemini AI</title>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <style>
+        :root {
+            --primary: #0062ff;
+            --bg: #f0f4f8;
+            --card-bg: #ffffff;
+        }
+        body {
+            font-family: 'Segoe UI', Meiryo, sans-serif;
+            background-color: var(--bg);
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+            width: 100%;
+            max-width: 800px;
+        }
+        h1 { margin: 0 0 10px 0; color: #1a202c; text-align: center; font-size: 1.8rem; }
+        .description { text-align: center; color: #718096; margin-bottom: 30px; font-size: 0.9rem; }
+        
+        .input-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .input-group {
+            background: #fdfdfd;
+            border: 1px solid #e2e8f0;
+            padding: 12px;
+            border-radius: 10px;
+            transition: border-color 0.2s;
+        }
+        .input-group:focus-within { border-color: var(--primary); }
+        label { display: block; font-size: 0.75rem; font-weight: bold; color: #4a5568; margin-bottom: 5px; }
+        input {
+            width: 100%;
+            border: none;
+            background: transparent;
+            font-size: 1rem;
+            outline: none;
+            color: #2d3748;
+            box-sizing: border-box;
+        }
+
+        .actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+        button {
+            padding: 14px 28px;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-generate { background: var(--primary); color: white; flex: 2; }
+        .btn-clear { background: #e2e8f0; color: #4a5568; flex: 1; }
+        button:hover { opacity: 0.9; transform: translateY(-1px); }
+        button:active { transform: translateY(0); }
+
+        .results {
+            margin-top: 40px;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+        }
+        .barcode-card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.02);
+            border: 1px solid #edf2f7;
+        }
+        .product-title {
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: #1a202c;
+            margin-bottom: 15px;
+            min-height: 2.8em;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            line-height: 1.4;
+        }
+        .loading-spinner { color: #cbd5e0; font-style: italic; font-size: 0.8rem; }
+        svg { max-width: 100%; height: auto; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>EAN Barcode AI Generator</h1>
+    <div class="description">EANコードを入力すると、AIが商品名を検索しバーコードを生成します。</div>
+    
+    <div class="input-grid" id="inputGrid">
+        </div>
+
+    <div class="actions">
+        <button class="btn-generate" onclick="startGeneration()">一括生成 & AI検索</button>
+        <button class="btn-clear" onclick="clearAll()">すべてクリア</button>
+    </div>
+</div>
+
+<div class="results" id="results"></div>
+
+<script>
+    // --- 設定: APIキーを入力 ---
+    const API_KEY = 'AIzaSyAIhk8nOuogzIU-yQariQAFXoa6_LEj9KA';
+
+    // 入力フィールドの初期化
+    const grid = document.getElementById('inputGrid');
+    for (let i = 1; i <= 10; i++) {
+        grid.innerHTML += `
+            <div class="input-group">
+                <label>SLOT ${i}</label>
+                <input type="text" id="ean-${i}" placeholder="8 or 13 digits" maxlength="13">
+            </div>
+        `;
+    }
+
+    // Gemini API 通信ロジック
+    async function getProductName(ean) {
+        const key = API_KEY.trim();
+        if (!key || key.includes('ここ')) return "API Key Required";
+
+        const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${key}`;
+        
+        try {
+            const response = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: `JAN/EANコード「${ean}」の具体的な商品名を1つ、日本語で短く回答してください。` }] }]
+                })
+            });
+
+            if (!response.ok) throw new Error(`Status: ${response.status}`);
+
+            const data = await response.json();
+            return data.candidates[0].content.parts[0].text.trim();
+        } catch (e) {
+            console.error(e);
+            return "検索エラー";
+        }
+    }
+
+    // 生成メイン処理
+    async function startGeneration() {
+        const resultsContainer = document.getElementById('results');
+        resultsContainer.innerHTML = '';
+
+        for (let i = 1; i <= 10; i++) {
+            const val = document.getElementById(`ean-${i}`).value.trim();
+            if (val.length !== 8 && val.length !== 13) continue;
+
+            // カードの作成
+            const card = document.createElement('div');
+            card.className = 'barcode-card';
+            card.innerHTML = `
+                <div style="font-size:0.7rem; color:#a0aec0; text-align:left; margin-bottom:8px;">SLOT ${i}</div>
+                <div class="product-title" id="title-${i}">
+                    <span class="loading-spinner">AI Searching...</span>
+                </div>
+                <svg id="svg-${i}"></svg>
+            `;
+            resultsContainer.appendChild(card);
+
+            // バーコード描画
+            try {
+                JsBarcode(`#svg-${i}`, val, {
+                    format: val.length === 13 ? "EAN13" : "EAN8",
+                    width: 2,
+                    height: 60,
+                    displayValue: true
+                });
+            } catch (err) {
+                console.error(err);
+            }
+
+            // AI検索（非同期）
+            getProductName(val).then(name => {
+                const titleEl = document.getElementById(`title-${i}`);
+                if (titleEl) titleEl.innerText = name;
+            });
+        }
+    }
+
+    // クリア処理
+    function clearAll() {
+        for (let i = 1; i <= 10; i++) {
+            document.getElementById(`ean-${i}`).value = '';
+        }
+        document.getElementById('results').innerHTML = '';
+    }
+</script>
+
+</body>
+</html>
